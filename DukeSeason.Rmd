@@ -1,5 +1,5 @@
 ---
-title: "Duke Basketball Analysis"
+title: "Duke 2014-15 Basketball Analysis"
 output: html_document
 author: "Jack Lichtenstein"
 ---
@@ -13,12 +13,9 @@ knitr::opts_chunk$set(echo = FALSE)
 ```{r load_packages, message=FALSE}
 library(tidyverse)
 library(modelr)
-library(ggalt)
 library(gganimate)
 library(grid)
 library(gridExtra)
-library(gtable)
-library(raster)
 library(hexbin)
 library(broom)
 library(ggExtra)
@@ -30,13 +27,9 @@ library(ggpubr)
 theme_set(theme_classic())
 ```
 
-```{r load_data, message=FALSE}
-Duke201819teamstats <- read_csv("data/Duke201819teamstats.csv")
+```{r load_data, message=FALSE, warning=FALSE}
 Duke201415teamstats <- read_csv("data/Duke201415teamstats.csv")
-Duke201819pbp <- read_csv("data/Duke201819pbp.csv")
-Williamson <- read_csv("data/ZionWilliamsonGameLog.csv")
-Duke201419Shots <- read_csv("data/Duke201419ShotCharts.csv")
-shotChart <- read_csv("data/shot_chart_NN_SVM.csv")
+ShotChart <- read_csv("data/shot_chart_NN_SVM.csv")
 SportVuGames <- read_csv("data/games_1415.csv")
 ```
 
@@ -179,76 +172,8 @@ P_half <- ggplot() + geom_polygon(data = court[court$side==1,], aes(x = x, y = y
 
 ## Data Cleaning/Wrangling
 
-```{r mean_PPS_eff_fg}
-meanPPS <- Duke201819teamstats %>%
-  summarise(meanPPS = mean(PPS))%>%
-  pull()
-
-mean_eff_fg <- Duke201819teamstats %>%
-  summarise(mean_eff_fg = mean(eff_fg_pct)) %>%
-  pull()
-
-shotChart <- shotChart %>%
-  mutate(EPS_NN = value * NN_probability,
-         EPS_SVM = value * SVM_probability)
-```
-
-```{r add_conference}
-Duke201819pbp <- Duke201819pbp%>%
-  mutate(type = case_when(
-    game_number %in% c(1:12) ~ "Non-Conference",
-    game_number %in% c(13:20) ~ "Conference",
-    game_number == 21 ~ "Non-Conference",
-    game_number %in% c(22:31) ~ "Conference",
-    game_number %in% c(32:34) ~ "ACC Tournament",
-    game_number %in% c(35:38) ~ "NCAA Tournament"
-  ))
-```
-
-```{r add_possession_length}
-Duke201819pbp <- Duke201819pbp %>%
-  mutate(possession_length = case_when(
-        !is.na(PPS) & time_diff %in% c(0:8) ~ "First 8 seconds",
-        !is.na(PPS) & time_diff %in% c(9:25) ~ "Average",
-        !is.na(PPS) & time_diff %in% c(26:40) ~ "Last 5 Seconds"
-      ))
-```
-
-```{r add_avg_poss_length}
-avg_poss_length <- Duke201819pbp %>%
-  filter(!is.na(PPS)) %>%
-  group_by(game_number, type, team) %>%
-  dplyr::summarise(avg_poss_length = mean(time_diff))
-  
-poss_length_Duke <- avg_poss_length %>%
-  ungroup() %>%
-  filter(team == "Duke") %>%
-  dplyr::select(avg_poss_length) %>%
-  pull()
-
-poss_length_opponent <- avg_poss_length %>%
-  ungroup() %>%
-  filter(team == "Opponent") %>%
-  dplyr::select(avg_poss_length) %>%
-  pull()
-```
-
 ```{r transform_half_court}
-one_side <- Duke201419Shots %>%
-  mutate(new_x = case_when(
-    y >= 47 ~ 50 - x,
-    y < 47 ~ x),
-         new_y = case_when(
-    y >= 47 ~ 94 - y,
-    y < 47 ~ y
-  ))
-
-one_side <- one_side %>%
-  mutate(team_flag = case_when(
-    team_name == "Duke" ~ "Duke",
-    TRUE ~ "Opponent"))
-
-shotChart <- shotChart %>%
+ShotChart <- ShotChart %>%
   mutate(new_x = case_when(
     y >= 47 ~ 50 - x,
     y < 47 ~ x),
@@ -258,42 +183,18 @@ shotChart <- shotChart %>%
     ))
 ```
 
-```{r add_shot_zone}
-distance_to_hoop <- function(x, y) {
-  pointDistance(c(x,y), c(25, 5.25), lonlat = F)
-}
-
-one_side <- one_side %>%
-  rowwise() %>%
-  dplyr::mutate(shot_zone = case_when(
-    distance_to_hoop(new_x, new_y) <= 4 & new_y >= 4 ~ "Restricted",
-    new_x >= 19 & new_x <= 31 & new_y <= 19 ~ "Paint (non-RA)",
-    three_pt == TRUE & new_x <= 4.25 & new_y <= 10 ~ "Left Corner 3",
-    three_pt == TRUE & new_x >= 45.75 & new_y <= 10 ~ "Right Corner 3",
-    three_pt == TRUE & new_x < 16.5 ~ "Left Wing 3",
-    three_pt == TRUE & new_x > 33.5 ~ "Right Wing 3",
-    three_pt == TRUE ~ "Top of Key 3",
-    TRUE ~ "Midrange"
-  ))
-
-one_side <- one_side %>%
-  mutate(made_flag = case_when(
-    outcome == "made" ~ 1,
-    outcome == "missed" ~ 0),
-        assist_flag = case_when(
-    is.na(assisted) ~ 0,
-    TRUE ~ 1
-  ))
-```
-
 ```{r add_ePPS}
-ePPS_NN <- shotChart %>%
+ShotChart <- ShotChart %>%
+  mutate(EPS_NN = value * NN_probability,
+         EPS_SVM = value * SVM_probability)
+
+ePPS_NN <- ShotChart %>%
   dplyr::group_by(game) %>%
   dplyr::summarise(ePPS = mean(EPS_NN)) %>%
   dplyr::select(ePPS) %>%
   pull()
 
-ePPS_SVM <- shotChart %>%
+ePPS_SVM <- ShotChart %>%
   dplyr::group_by(game) %>%
   dplyr::summarise(ePPS = mean(EPS_SVM)) %>%
   dplyr::select(ePPS) %>%
@@ -315,19 +216,49 @@ subset <- subset %>%
                 ePPS_SVM = ePPS_SVM,
                 ePPS = ePPS)
 
-shotChart <- shotChart %>%
+ShotChart <- ShotChart %>%
   dplyr::mutate(ePPS_NN = NN_probability * value,
                 ePPS_SVM = SVM_probability * value,
                 ePPS = (ePPS_NN +ePPS_SVM)/2)
 ```
 
-```{r to_long_format}
+```{r wide_to_long_format}
 long <- subset %>%
    dplyr::select(game_number, opponent, PPS, ePPS_NN, ePPS_SVM, ePPS, shot_making_NN, shot_making_SVM, shot_making) %>%
    gather(type, value, -game_number, -opponent, -shot_making_NN, -shot_making_SVM, -shot_making)
 
 subset <- subset %>%
   mutate(pt_diff = pts - opp_pts)
+```
+
+```{r get_game_IDs}
+get_game_ids <- function(Year) {
+  url <- paste("https://www.espn.com/mens-college-basketball/team/schedule/_/id/150/season/", Year, sep = "")
+  y <- read_html(url) %>%
+    html_nodes(".ml4 a") %>%
+    html_attr("href") %>%
+    substr(57, 65)
+  return(y)
+}
+
+gameIDs201415 <- get_game_ids("2015")
+NCAATourn <- gameIDs201415[1:6]
+gameIDs201415 <- gameIDs201415[-c(1:6)]
+gameIDs201415[c(34:39)] <- NCAATourn
+gameIDs201415 <- gameIDs201415[c(1:7, 9, 11:13, 16, 18, 22, 23, 26, 27, 29, 30, 32:35)]
+
+long$gameID <- paste(gameIDs201415)
+subset$gameID <- paste(gameIDs201415)
+```
+
+```{r models_for_shot_making}
+model <- lm(pts ~ shot_making, data = subset)
+r2 <- paste("R-squared: ", round(100 * glance(model)$r.squared, 4), "%", sep = "") 
+p_val <- paste("P-value: ", round(glance(model)$p.value, 10), sep = "")
+
+model2 <- lm(shot_making ~ ast, data = subset)
+r22 <- paste("R-squared: ", round(100 * glance(model2)$r.squared, 4), "%", sep = "") 
+p_val2 <- paste("P-value: ", round(glance(model2)$p.value, 10), sep = "")
 ```
 
 ```{r convex_hull_data_frames}
@@ -436,7 +367,7 @@ Duke201415teamstats %>%
 ```
 
 ```{r plot_ePPS_heat_map}
-ePPS_heat_SVM <- shotChart %>%
+ePPS_heat_SVM <- ShotChart %>%
   ggplot(aes(x = new_x, y = new_y)) +
   stat_summary_hex(aes(z = ePPS_SVM), bins = 30, colour = "gray", alpha = 0.7, size = 0.2) +
   geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
@@ -453,7 +384,7 @@ ePPS_heat_SVM <- shotChart %>%
 
 p1 <- ggMarginal(ePPS_heat_SVM, type = "histogram", size = 8, fill = "#001A57")
 
-ePPS_heat_NN <- shotChart %>%
+ePPS_heat_NN <- ShotChart %>%
   ggplot(aes(x = new_x, y = new_y)) +
   stat_summary_hex(aes(z = ePPS_NN), bins = 30, colour = "gray", alpha = 0.7, size = 0.2) +
   geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
@@ -469,7 +400,7 @@ ePPS_heat_NN <- shotChart %>%
 
 p2 <- ggMarginal(ePPS_heat_NN, type = "histogram", size = 8, fill = "#001A57")
 
-ePPS_heat <- shotChart %>%
+ePPS_heat <- ShotChart %>%
   ggplot(aes(x = new_x, y = new_y)) +
   stat_summary_hex(aes(z = ePPS), bins = 30, colour = "gray", alpha = 0.7, size = 0.2) +
   geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
@@ -494,96 +425,6 @@ grid.newpage()
 grid.draw(p2)
 grid.newpage()
 grid.draw(p3)
-```
-
-```{r plot_shot_making_interactive}
-get_game_ids <- function(Year) {
-  url <- paste("https://www.espn.com/mens-college-basketball/team/schedule/_/id/150/season/", Year, sep = "")
-  y <- read_html(url) %>%
-    html_nodes(".ml4 a") %>%
-    html_attr("href") %>%
-    substr(57, 65)
-  return(y)
-}
-
-gameIDs201415 <- get_game_ids("2015")
-NCAATourn <- gameIDs201415[1:6]
-gameIDs201415 <- gameIDs201415[-c(1:6)]
-gameIDs201415[c(34:39)] <- NCAATourn
-gameIDs201415 <- gameIDs201415[c(1:7, 9, 11:13, 16, 18, 22, 23, 26, 27, 29, 30, 32:35)]
-
-long$gameID <- paste(gameIDs201415)
-subset$gameID <- paste(gameIDs201415)
-
-long$tooltip <- paste(long$type, ": ", round(long$value, 2), sep = "")
-long$onclick <- sprintf("window.open(\"%s%s\")",
-  "https://www.espn.com/mens-college-basketball/game?gameId=", as.character(long$gameID))
-
-game_by_game <- long %>%
-  filter(type %in% c("ePPS", "PPS")) %>%
-  ggplot(aes(x = reorder(opponent, game_number), y = value, group = type, 
-             color = type, tooltip = tooltip, onclick = onclick)) + 
-  geom_line() + 
-  geom_point_interactive(aes(data_id = value), size = 2) +
-  geom_label(aes(x = reorder(opponent, game_number), y = 0.75, label = round(shot_making, 1), 
-                 fill = shot_making), color = "black", size = 2.5, label.size = 0.1, label.r = unit(0.1, "lines"), label.padding = unit(0.1, "lines")) +
-  geom_text(aes(x = 3, y = 0.8, label = "Shot-Making:"), size = 3, inherit.aes = F) +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", labels = c(low = "Worse: -0.3", mid = "Expected: 0", high = "Better: 0.3"), breaks = c(-0.2, 0, 0.2), limits = c(-0.3, 0.3)) +
-  scale_color_manual(values = c("#001A57", "grey", "light blue", "grey")) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Duke's Game-by-Game Shooting", subtitle = "2014-15 Season",
-       x = "Opponent", y = "Points Per Shot", color = "Type", fill = "Shot-Making")
-
-ggiraph(code = {print(game_by_game)})
-
-subset$tooltip <- paste("vs. ", subset$opponent, ": ", subset$pts, " - ", subset$opp_pts, sep = "")
-subset$onclick <- sprintf("window.open(\"%s%s\")",
-  "https://www.espn.com/mens-college-basketball/game?gameId=", as.character(subset$gameID))
-
-model <- lm(pts ~ shot_making, data = subset)
-r2 <- paste("R-squared: ", round(100 * glance(model)$r.squared, 4), "%", sep = "") 
-p_val <- paste("P-value: ", round(glance(model)$p.value, 10), sep = "")
-
-shot_making_pt_diff <- subset %>%
-  ggplot(aes(x = shot_making, y = pt_diff, color = result, tooltip = tooltip, onclick = onclick)) + 
-  geom_point_interactive(aes(data_id = shot_making), size = 3) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  geom_text(aes(x = -0.11, y = 50, label = "Worse Than Expected Shot-Making:"), size = 3.5, inherit.aes = F) +
-  geom_text(aes(x = 0.11, y = 50, label = "Better Than Expected Shot-Making:"), size = 3.5, inherit.aes = F) +
-  geom_text(aes(x = 0.25, y = 38, label = r2), size = 2.5, inherit.aes = F) +
-  geom_text(aes(x = 0.25, y = 35, label = p_val), size = 2.5, inherit.aes = F) +
-  scale_color_manual(values = c("red", "#001A57")) +
-  geom_smooth(aes(x = shot_making, y = pt_diff), method = "lm", se = F, inherit.aes = F) + 
-  labs(title = "Better shot-making leads to larger margins of victory", 
-       subtitle = "Duke 2014-15 Season",
-       x = "Shot-Making Index", y = "Point Differential", color = "Result")
-
-ggiraph(code = {print(shot_making_pt_diff)}, width_svg = 8, height_svg = 7)
-
-subset$tooltip_ast <- paste("vs. ", subset$opponent, ": ", subset$pts, " - ", subset$opp_pts,
-                            ", Asts: ", subset$ast, sep = "")
-
-model2 <- lm(shot_making ~ ast, data = subset)
-r22 <- paste("R-squared: ", round(100 * glance(model2)$r.squared, 4), "%", sep = "") 
-p_val2 <- paste("P-value: ", round(glance(model2)$p.value, 10), sep = "")
-
-ast_shot_making <- subset %>%
-  ggplot(aes(x = ast, y = shot_making, color = result, tooltip = tooltip_ast, onclick = onclick)) +
-  geom_point_interactive(aes(data_id = shot_making), size = 3) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = mean(subset$ast), linetype = "dashed") +
-  geom_text(aes(x = 25, y = -0.05, label = "Worse Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = 25, y = 0.05, label = "Better Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = mean(subset$ast) + 2, y = -0.2, label = paste("Mean: ", as.character(round(mean(subset$ast), 1)), " asts", sep = "")), size = 3, inherit.aes = F) +
-  geom_text(aes(x = 26, y = 0.26, label = r22), size = 2.5, inherit.aes = F) +
-  geom_text(aes(x = 26, y = 0.24, label = p_val2), size = 2.5, inherit.aes = F) +
-  scale_color_manual(values = c("red", "#001A57")) +
-  geom_smooth(aes(x = ast, y = shot_making), method = "lm", se = F, inherit.aes = F) + 
-  labs(title = "More assists lead to better shot-making", subtitle = "Duke 2014-15 Season", 
-       x = "Assists", y = "Shot-Making Index", color = "Result")
-
-ggiraph(code = {print(ast_shot_making)})
 ```
 
 ```{r plot_shot_making}
@@ -629,221 +470,6 @@ subset %>%
        x = "Assists", y = "Shot-Making Index", color = "Result", caption = paste(r22, p_val2, sep = "\n"))
 ```
 
-```{r plot_PPP}
-Duke201819teamstats %>%
-  ggplot(aes(x = reorder(opponent, PPS), y = PPS, fill = result)) + 
-  geom_col() +
-  coord_flip() +
-  geom_hline(yintercept = meanPPS, linetype = "dashed") +
-  geom_text(aes(label = round(PPS, 2)), hjust = "top", size = 3) +
-  geom_text(x = length(Duke201819teamstats$game_number) - 28, y = meanPPS + .2, label = paste("Mean: ", as.character(round(meanPPS, 1)), " PPS", sep = ""), size = 3) +
-  theme_classic() +
-  labs(title = "Duke's Points Per Shot by Game", subtitle = "2018-2019 Season",
-       x = "Opponent", y = "Points Per Shot", fill = "Result")
-
-Duke201819teamstats %>%
-  mutate(color = (min(eff_fg_pct) == eff_fg_pct | max(eff_fg_pct) == eff_fg_pct)) %>%
-  ggplot(aes(x = reorder(opponent, game_number), y = eff_fg_pct, group = 1)) + 
-  geom_line() + 
-  geom_point(aes(color = color)) + 
-  geom_hline(yintercept = mean_eff_fg, linetype = "dashed") +
-  scale_y_continuous(labels = scales::percent) +
-  scale_color_manual(values = c("black", "red")) +
-  geom_text(x = length(Duke201819teamstats$game_number) - 2, y = mean_eff_fg - .05, label = paste("Mean: ", as.character(round(100 * mean_eff_fg, 1)), "%", sep = ""), size = 3) +
-  geom_text(x = length(Duke201819teamstats$game_number) - 12, y = max(Duke201819teamstats$eff_fg_pct), label = paste("Max: ", as.character(round(100 * max(Duke201819teamstats$eff_fg_pct), 1)), "%", sep = ""), size = 3) +
-  geom_text(x = length(Duke201819teamstats$game_number) - 4, y = min(Duke201819teamstats$eff_fg_pct), label = paste("Min: ", as.character(round(100 * min(Duke201819teamstats$eff_fg_pct), 1)), "%", sep = ""), size = 3) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  guides(color = F) +
-  labs(title = "Duke's Game-by-Game Shooting", subtitle = "2018-19 Season",
-       x = "Opponent", y = "eFG%")
-  
-Duke201819teamstats %>%
-  group_by(type) %>%
-  summarise(mean = mean(PPS)) %>%
-  ggplot(aes(x = reorder(type, mean), y = mean, fill = type)) + 
-  geom_col() +
-  geom_text(aes(label = round(mean, 2)), position = position_dodge(0.9), vjust = "bottom") +
-  scale_color_manual(values = c("grey", "grey", "red", "grey"), aesthetics = "fill") +
-  labs(title = "Duke's PPS by Game Type", subtitle = "2018-19 Season", x = "Game Type",
-       y = "Points Per Shot", fill = "Game Type")
-```
-
-```{r plot_Zion, warning=FALSE}
-Williamson_PPS <- Williamson %>%
-  filter(!is.na(PPS)) %>%
-  summarise(mean = mean(PPS)) %>%
-  pull()
-
-Williamson %>%
-  ggplot(aes(x = game_number, y = PPS, color = result)) + 
-  geom_point() +
-  geom_hline(yintercept = Williamson_PPS, linetype = "dashed") +
-  geom_smooth(data = Williamson, mapping = aes(x = game_number, y = PPS), inherit.aes = FALSE, method = "loess", se = F) + 
-  geom_text(data = Williamson, aes(x = length(Williamson$game_number) - 2, y = Williamson_PPS + .1, label = paste("Mean: ", as.character(round(Williamson_PPS, 2)), " PPS", sep = "")), size = 3, inherit.aes = F) +
-  labs(title = "Zion Williamson PPS by game", subtitle = "2018-19 Season", x = "Game Number",
-       color = "Result")
-```
-
-```{r plot_possession_length}
-Duke201819pbp %>%
-  filter(team == "Duke", !is.na(PPS)) %>%
-  group_by(possession_length) %>%
-  summarise(mean = mean(PPS)) %>%
-  ggplot(aes(x = reorder(possession_length, mean), y = mean, fill = mean)) + 
-  geom_col() +
-  geom_text(aes(label = round(mean, 2)), position = position_dodge(0.9), vjust = "bottom") +
-  labs(title = "Duke's PPS by Possession Length", subtitle = "Duke 2018-2019 Season", x = "Possession Length", y = "Points Per Shot", fill = "Points Per Shot")
-```
-
-```{r plot_pace_of_play}
-Duke201819teamstats %>%
-  ggplot(aes(x = game_number, y = poss_length_Duke, color = type, shape = result)) + 
-  geom_point() +
-  scale_shape_manual(values = c(4, 16)) +
-  geom_smooth(data = Duke201819teamstats, mapping = aes(x = game_number, y = poss_length_Duke), inherit.aes = FALSE, method = "loess", se = FALSE) +
-   labs(title = "Duke plays at slower pace as season progresses", subtitle = "During 2018-19 Season", x = "Game Number", y = "Average Possesion Length (s)", color = "Type", shape = "Result")
-```
-
-```{r pace_compared_opponent}
-Duke201819teamstats %>%
-  ggplot(aes(x = poss_length_Duke, xend = poss_length_opp, y = game_number, color = result)) + 
-  coord_flip() +
-  geom_dumbbell(colour_x = "blue", colour_xend = "#a3c4dc", size_x = 2, size_xend = 2, show.legend = T) +
-  labs(title = "Duke plays at a faster pace than their opponents", subtitle = "During 2018-19 Season", x = "Average Possession Length (s)", y = "Game Number", color = "Result")
-```
-
-```{r plot_shot_chart}
-P_half + geom_point(data = one_side, 
-               aes(x = new_x, y = new_y, color = shot_zone, shape = outcome)) +
-  scale_shape_manual(values = c(1, 4)) + 
-  facet_wrap(. ~ team_flag) +
-  theme(panel.background = element_blank()) +
-  labs(title = "Duke's Shot Chart vs. Opponent Shot Chart", subtitle = "From 2014-19", color = "Shot Zone", shape = "Outcome")
-```
-
-```{r plot_shot_accuracy, warning=FALSE}
-shotS <- one_side %>%
-  group_by(season, shot_zone, team_flag) %>%
-  summarise(shots_attempted = length(outcome),
-            shots_made = sum(as.numeric(as.character(made_flag))),
-            assisted = sum(as.numeric((as.character(assist_flag)))))
-
-shotS <- shotS %>%
-  mutate(shot_accuracy = shots_made/shots_attempted,
-         assist_pct = assisted/shots_made,
-         PPS = case_when(
-    shot_zone %in% c("Left Corner 3", "Right Corner 3", "Top of Key 3", "Left Wing 3",
-                     "Right Wing 3") ~ shot_accuracy * 3,
-    TRUE ~ shot_accuracy * 2),
-        x = case_when(
-    shot_zone %in% c("Restricted", "Paint (non-RA)", "Midrange", "Top of Key 3") ~ 25,
-    shot_zone == "Right Corner 3" ~ 47.75,
-    shot_zone == "Left Corner 3" ~ 2,
-    shot_zone == "Left Wing 3" ~ 9.5,
-    shot_zone == "Right Wing 3" ~ 40.5),
-        y = case_when(
-    shot_zone %in% c("Restricted", "Left Corner 3", "Right Corner 3") ~ 6.75,
-    shot_zone == "Paint (non-RA)" ~ 12.75,
-    shot_zone == "Midrange" ~ 20.75,
-    shot_zone == "Top of Key 3" ~ 28,
-    shot_zone == "Right Wing 3" ~ 22,
-    shot_zone == "Left Wing 3" ~ 22
-))
-
-shotS$shot_accuracy_lab <- paste(as.character(round(100 * shotS$shot_accuracy, 1)), "%", sep="")
-shotS$season_lab <- str_replace(shotS$season, "20", "")
-shotS$PPS_lab <- paste(as.character(round(shotS$PPS, 2)), " PPS", sep = "")
-shotS$shot_attempts_lab <- paste(as.character(shotS$shots_attempted), " FGA", sep = "")
-shotS$assist_lab <- paste(as.character(round(100 * shotS$assist_pct, 1)), "%", sep = "")
-
-P_half + geom_point(data = shotS, aes(x = x, y = y, color = shot_zone, size = shot_accuracy, alpha = 0.3), size = 2) + 
-  geom_text(data = shotS, aes(x = x, y = y, color = shot_zone, label = shot_accuracy_lab), vjust = -1.2, size = 2) + 
-  geom_text(data = shotS, aes(x = x + 5, y = y, color = shot_zone, label = PPS_lab),
-            size = 1.5) +
-  geom_text(data = shotS, aes(x = x - 5, y = y, color = shot_zone, label = shot_attempts_lab),
-            size = 1.5) +
-  guides(alpha = F, size = F, color = F) +
-  facet_wrap(.~ team_flag) +
-  theme(axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
-        panel.background = element_blank(),
-        legend.title = element_blank(),
-        axis.title = element_blank()) +
-  transition_states(season) +
-  labs(title = "Duke's shot accuracy vs. opponent's during {closest_state} season")
-```
-
-```{r plot_season_by_season_accuracy}
-shotS %>%
-  filter(team_flag == "Duke") %>%
-  ggplot(aes(x = season_lab, y = assist_pct, color = team_flag, group = team_flag)) + 
-  geom_point() +
-  geom_line() +
-  facet_wrap(.~ shot_zone) +
-  scale_y_continuous(labels = scales::percent) +
-  labs(title = "Duke's assist percentage highest on three's", subtitle = "2014-19", x = "Season", y = "Assist Percentage") +
-  scale_color_manual(values = "#001A57") +
-  guides(color = F)
-
-shotS %>%
-  ggplot(aes(x = season_lab, y = shots_attempted, color = team_flag, group = team_flag)) + 
-  geom_point() +
-  geom_line() +
-  facet_wrap(.~ shot_zone) +
-  scale_color_manual(values = c("#001A57", "grey")) +
-  labs(title = "Duke's shot volume by location", subtitle = "2014-19", x = "Season", y = "Shots Attempted", color = "Team")
-
-shotS %>%
-  ungroup() %>%
-  mutate(shot_zone_basic = case_when(
-           shot_zone == "Midrange" ~ "Midrange",
-           shot_zone %in% c("Paint (non-RA)", "Restricted") ~ "Paint",
-           shot_zone %in% c("Right Corner 3", "Left Corner 3", "Top of Key 3",
-                            "Right Wing 3", "Left Wing 3") ~ "Three Point")) %>%
-  group_by(season, team_flag) %>%
-  mutate(shot_freq = shots_attempted/sum(shots_attempted)) %>%
-  group_by(season, team_flag, shot_zone_basic) %>%
-  mutate(new_shot_freq = sum(shot_freq)) %>%
-  filter(team_flag == "Duke") %>%
-  ggplot(aes(x = season_lab, y = new_shot_freq, color = shot_zone_basic, group = shot_zone_basic)) + 
-  geom_point() + 
-  geom_line() +
-  scale_y_continuous(labels = scales::percent) +
-  labs(title = "Duke's shot frequency by shot zone", subtitle = "From 2014-2019", x = "Season", y = "Shot Frequency", color = "Shot Zone")
-
-shotS %>%
-  ggplot(aes(x = season_lab, y = shot_accuracy, color = team_flag, group = team_flag)) + 
-  geom_point() + 
-  geom_line() +
-  facet_wrap(.~ shot_zone) +
-  scale_y_continuous(labels = scales::percent) +
-  scale_color_manual(values = c("#001A57", "grey")) +
-  labs(title = "Duke's shot accuracy by shot zone", subtitle = "From 2014-2019", x = "Season", y = "FG%", color = "Team")
-```
-
-```{r plot_heatmaps}
-one_side %>%
-  ggplot() + 
-  stat_density_2d(data = one_side %>% filter(shot_zone != "Restricted"), 
-                  aes(x = new_x, y = new_y, fill = stat(density/max(density))),
-                  geom = "raster", contour = FALSE, interpolate = TRUE, n = 200) +
-  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
-  coord_equal() + 
-  facet_wrap(.~ team_flag) +
-  scale_fill_viridis_c("Shot Frequency",
-                        limits = c(0, 1),
-                        breaks = c(0, 1),
-                        labels = c("Lower", "Higher"),
-                        option = "plasma") + 
-  theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks.x = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.title = element_blank()) + 
-    labs(title = "Shot Frequency", subtitle = "Excluding Restricted Area", x = "", y = "")
-```
-
 ```{r plot_static_convex_hull}
 SportVuGames %>%
   slice(357) %>%
@@ -887,7 +513,7 @@ SportVuGames %>%
   labs(title = "Convex Hull Area Plot", subtitle = "Duke vs. Presbyterian")
 ```
 
-```{r plot_gravity}
+```{r plot_gravity, warning=FALSE}
 poss_data <- read_csv("data/possession_test.csv")
 poss_data2 <- read_csv("data/possession_test2.csv")
 

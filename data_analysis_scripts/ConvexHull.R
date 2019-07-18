@@ -176,13 +176,17 @@ poss_data <- read_csv("data/possession_test.csv")
 poss_data2 <- read_csv("data/possession_test2.csv")
 poss_data3 <- read_csv("data/possession_test3.csv")
 poss_data4 <- read_csv("data/possession_test4.csv")
-poss_data7 <- read_csv("data/possession_test7.csv")
+poss_data12 <- read_csv("data/possession_test12.csv")
 
 colnames(poss_data)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
 colnames(poss_data2)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
 colnames(poss_data3)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
 colnames(poss_data4)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
-colnames(poss_data7)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
+colnames(poss_data12)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
+
+poss_data12[3:7] <- abs(poss_data12)[3:7]
+poss_data13[3:7] <- 1/poss_data13[3:7]
+poss_data13[3:7] <- 10 * poss_data13[3:7]
 
 ND_poss <- SportVuGames %>%
   slice(69276:69291)
@@ -205,25 +209,26 @@ poss_data3 <- poss_data3 %>%
 poss_data4 <- poss_data4 %>%
   dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
 
-poss_data7 <- poss_data7 %>%
+poss_data12 <- poss_data12 %>%
   dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
 
 gravity_test <- bind_cols(ND_poss, poss_data)
 gravity_test2 <- bind_cols(PB_poss, poss_data2)
 gravity_test3 <- bind_cols(FF_poss, poss_data3)
 gravity_test4 <- bind_cols(FF_poss, poss_data4)
-gravity_test7 <- bind_cols(FF_poss, poss_data7)
+gravity_test12 <- bind_cols(ND_poss, poss_data12)
 
-p2 <- gravity_test3 %>%
-  slice(1:14) %>%
+slice(1:14)
+
+p2 <- gravity_test12 %>%
   ggplot() +
-  geom_polygon(data = court, aes(x = x, y = y, group = group), color = "gray") +
+  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
   stat_chull(data = xy1 %>%
                dplyr::group_by(type) %>%
-               slice(5383:5396), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
+               slice(69276:69291), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
   stat_chull(data = xy2 %>%
                dplyr::group_by(type) %>%
-               slice(5383:5396), aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
+               slice(69276:69291), aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
   geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
   geom_text(aes(x = p1_x, y = p1_y - 2, label = as.character(round((p1_grav), 2)))) +
   geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
@@ -261,7 +266,77 @@ p2 <- gravity_test3 %>%
         plot.subtitle = element_text(hjust = 0.5)) +
   transition_time(-game.clock) +
   ease_aes("linear") +
-  labs(title = "Duke vs. Fairfield", subtitle = "Progress: {100 * round(progress, 2)}%")
+  labs(title = "Duke vs. Notre Dame", subtitle = "Progress: {100 * round(progress, 2)}%")
 
-gganimate::animate(p2, start_pause = 10, end_pause = 10, nframes = 350, renderer = ffmpeg_renderer())
+gganimate::animate(p2, start_pause = 10, end_pause = 10, nframes = 400, renderer = ffmpeg_renderer())
+
+FF_poss %>%
+  slice(11) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = p2_x, yend = p2_y), color = "red", size = 1.5, linetype = "dashed") +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = 25, yend = 4.75), color = "red", size = 1.5, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = p2_y, xend = 25, yend = 4.75), color = "red", size = 1.5, linetype = "dashed") +
+  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
+  geom_text(aes(x = p1_x, y = p1_y + 2, label = as.character(round((W1), 2)))) +
+  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
+  geom_text(aes(x = p2_x, y = p2_y - 2, label = as.character(round((W3), 2)))) +
+  geom_point(aes(x = p10_x, y = p10_y), size = 4) + 
+  geom_text(aes(x = 25, y = 4.75 - 2, label = as.character(round((W2), 2)))) +
+  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
+  coord_equal(clip = "off") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+
+FF_poss %>%
+  slice(12) %>%
+  dplyr::select(p1_x, p1_y, p2_x, p2_y, p10_x, p10_y)
+
+X1 <- 25.2
+Y1 <- 39.3
+X2 <- 25
+Y2 <- 4.75
+X3 <- 44.4
+Y3 <- 25.9
+
+Px <- 38.4
+Py <- 22.4
+
+
+W1 <- ((Y2-Y3)*(Px-X3) + (X3-X2)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W2 <- ((Y3-Y1)*(Px-X3) + (X1-X3)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W3 <- 1 - W1 - W2
+
+ND_poss %>%
+  slice(7) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x, yend = p6_y), color = "red", size = 1.5) +
+  geom_text(aes(x = 40, y = 88, label = "Low Gravity"), angle = 7, size = 3) +
+  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
+  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
+  geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4) +
+  geom_point(aes(x = p4_x, y = p4_y), color = "blue", size = 4) +
+  geom_point(aes(x = p5_x, y = p5_y), color = "blue", size = 4) +
+  geom_point(aes(x = p6_x, y = p6_y), size = 4) +
+  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p2_x, yend = p2_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p3_x, yend = p3_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p4_x, yend = p4_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p5_x, yend = p5_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = 25, yend = 88.75), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = ball_x, yend = ball_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  coord_equal(clip = "off") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
 

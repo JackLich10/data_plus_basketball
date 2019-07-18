@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-## Load Packages and Data
+## Data
 
 ```{r load_packages, message=FALSE}
 library(tidyverse)
@@ -142,7 +142,6 @@ P <- ggplot() + geom_polygon(data = court, aes(x = x, y = y, group = group), col
         axis.text.y = element_blank(), axis.ticks.x = element_blank(),
         axis.ticks.y = element_blank(), axis.title = element_blank()
   )
-ggsave(filename = "CollegeFullCourt.png", plot = P, device = "png", path = "data")
 
 # Whole court with rotation
 P_180 <- ggplot() + geom_polygon(data = rotate_court(court, theta = pi/2), aes(x = x, y = y, group = group), col = "gray") +
@@ -170,8 +169,6 @@ P_half <- ggplot() + geom_polygon(data = court[court$side==1,], aes(x = x, y = y
         axis.ticks.y = element_blank(), axis.title = element_blank()
   )
 ```
-
-## Data Cleaning/Wrangling
 
 ```{r transform_half_court}
 ShotChart <- ShotChart %>%
@@ -262,7 +259,7 @@ r22 <- paste("R-squared: ", round(100 * glance(model2)$r.squared, 4), "%", sep =
 p_val2 <- paste("P-value: ", round(glance(model2)$p.value, 10), sep = "")
 ```
 
-```{r convex_hull_data_frames}
+```{r convex_hull_data_frames, warning=FALSE, message=FALSE}
 x1 <- SportVuGames %>%
   dplyr::select(p1_x, p2_x, p3_x, p4_x, p5_x, game_id, game.clock) %>%
   gather(type, xcoord, -game_id, -game.clock)
@@ -345,9 +342,47 @@ SportVuGames <- SportVuGames %>%
       p5_global_id %in% c("601140", "842297", "842296", "696289", "842313", "786843", "756883") ~ "G",
       p5_global_id %in% c("842301", "601143") ~ "C",
       TRUE ~ "F"))
+
+poss_data <- read_csv("data/possession_test.csv")
+poss_data2 <- read_csv("data/possession_test2.csv")
+
+colnames(poss_data)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
+colnames(poss_data2)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
+
+ND_poss <- SportVuGames %>%
+  slice(69276:69291)
+
+PB_poss <- SportVuGames %>%
+  slice(425:433)
+
+FF_poss <- SportVuGames %>%
+  slice(5383:5408)
+
+poss_data <- poss_data %>%
+  dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
+
+poss_data2 <- poss_data2 %>%
+  dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
+
+gravity_test <- bind_cols(ND_poss, poss_data)
+gravity_test2 <- bind_cols(PB_poss, poss_data2)
 ```
 
-## Exploratory Data Analysis
+SportVU technology was first used in the NBA during the 2010-11 season, and by 2013-14, became a standard inclusion in every NBA arena. Although SportVU cameras were later replaced by Second Spectrum tracking in professional arenas, SportVU cameras are currently used by a few college basketball programs, including Duke University.
+
+SportVU cameras capture the locations of all 10 players on the court and the ball at 25 frames per second, and also convey limited play-by-play information, such as identifying a pass, dribble, rebound, shot, etc. Our SportVU data includes all Duke basketball games played in Cameron Indoor Stadium during the 2014-2015 college basketball season. In total, we have access to data from 23 games, from which we created various models to return the probability of the outcome of a shot and an algorithm to quantify different measures of a player’s off-ball “gravity”.
+
+## Shot Predictor
+
+A quick glance at a basketball box score can give someone a brief summary of what took place in a given game. However, the box score is a rather “empty” sample of descriptive statistics. There are countless actions that take place during a basketball game that are not visible on the simple box score. One such data point that is missing from the box score is an accurate representation of shooting. The box score is unable to capture anything but the outcome of a shot. For example, an offensive possession that leads to a missed open layup after terrific ball-movement and passing is labelled an inefficient possession. Conversely, a made three-point heave at the end of the shot-clock is marked as an extremely efficient possession. Obviously, these are both inaccurate representations of what really took place on the court. Motivated by this disparity between the box score and on-court action, we decided to create a model to predict the probability of a shot going in.
+
+We want to create models with a probabilistic output rather than a binary output in order to obtain the expected points per shot (ePPS). The equation for expected points per shot is below:
+
+    ePPS = value of shot * probability of made shot
+
+This new metric, ePPS, is a measure of shot quality, as it only takes into account the features that describe the environment at the moment the shot is attempted. Additionally, it is a metric that more accurately differentiates between low-quality shots and high-quality shots, unlike traditional box score methods.
+
+### Interpretation
 
 ```{r plot_201415}
 Duke201415teamstats %>%
@@ -364,8 +399,65 @@ Duke201415teamstats %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   guides(color = F) +
   labs(title = "Duke's Game-by-Game Shooting", subtitle = "2014-15 Season",
-       x = "Opponent", y = "eFG%")
+       x = "Opponent", y = "eFG%", caption = "Figure 1")
 ```
+
+First, it is important to note that shot making ability varies greatly from game to game. As seen in Figure 1 above, during the 2014-15 Duke season, Duke had an effective field goal percentage (eFG%) as high as 72.8% and as low as 42.3%. What is the reason for this volatility? With our new metric ePPS, we can separate the quality of a shot from the outcome of a shot.
+
+```{r plot_ePPS_PPS}
+long %>%
+  filter(type %in% c("ePPS", "PPS")) %>%
+  ggplot(aes(x = reorder(opponent, game_number), y = value, group = type, 
+             color = type)) + 
+  geom_line() + 
+  geom_point(size = 2) +
+  geom_label(aes(x = reorder(opponent, game_number), y = 0.75, label = round(shot_making, 1), 
+                 fill = shot_making), color = "black", size = 2.5, label.size = 0.1, label.r = unit(0.1, "lines"), label.padding = unit(0.1, "lines")) +
+  geom_text(aes(x = 3, y = 0.8, label = "Shot-Making:"), size = 3, inherit.aes = F) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", labels = c(low = "Worse: -0.3", mid = "Expected: 0", high = "Better: 0.3"), breaks = c(-0.2, 0, 0.2), limits = c(-0.3, 0.3)) +
+  scale_color_manual(values = c("#001A57", "grey", "light blue", "grey")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Duke's Game-by-Game Shooting", subtitle = "2014-15 Season",
+       x = "Opponent", y = "Points Per Shot", color = "Type", fill = "Shot-Making", caption = "Figure 2")
+```
+
+In Figure 2 above, we compare Duke’s actual points per shot (PPS) to our metric ePPS during the 2014-15 season. It is clear that Duke generated roughly the same quality of looks game-to-game. That is, their ePPS was rather consistent throughout the season. It makes intuitive sense that the same players, on the same team, with the same coach, running similar offensive actions would produce around the same quality of looks.
+
+The difference between PPS and ePPS reveals another insight into Duke’s shooting: their ability to make shots. If we know how well Duke is expected to shoot and how well they actually did shoot, it follows that we can evaluate their ability to make shots in a given game. If Duke’s PPS is higher than its ePPS, then the team converted on more shots than expected, indicating higher shot making ability. This same logic follows for worse than expected shot making. We call this new value (the difference between PPS and ePPS) a team’s shot making index (SMI).
+
+```{r plot_shot_making_pt_diff}
+subset %>%
+  ggplot(aes(x = shot_making, y = pt_diff, color = result)) + 
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_smooth(aes(x = shot_making, y = pt_diff), method = "lm", se = F, inherit.aes = F) +
+  geom_point(size = 3) +
+  geom_text(aes(x = -0.11, y = 50, label = "Worse Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
+  geom_text(aes(x = 0.11, y = 50, label = "Better Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
+  scale_color_manual(values = c("red", "#001A57")) +
+  labs(title = "Better shot-making leads to larger margins of victory", 
+       subtitle = "Duke 2014-15 Season",
+       x = "Shot-Making Index", y = "Point Differential", color = "Result", caption = paste(r2, p_val, "Figure 3", sep = "\n"))
+```
+
+In Figure 3, we explore the relationship between SMI and point differential. There is a positive correlation between SMI and point differential, with larger values of SMI (indicating better than expected shot making) correlating to higher point differentials (indicating larger margins of victory). Fitting a simple linear model, we find an R^2^ of 63.2%, meaning 63.2% of the variation in point differential is well-explained by SMI. Interestingly, in both of Duke’s losses in our dataset, Duke shot worse than expected.
+
+```{r plot_asts_shot_making}
+subset %>%
+  ggplot(aes(x = ast, y = shot_making, color = result)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = mean(subset$ast), linetype = "dashed") +
+  geom_smooth(aes(x = ast, y = shot_making), method = "lm", se = F, inherit.aes = F) + 
+  geom_point(size = 3) +
+  geom_text(aes(x = 25, y = -0.05, label = "Worse Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
+  geom_text(aes(x = 25, y = 0.05, label = "Better Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
+  geom_text(aes(x = mean(subset$ast) + 2, y = -0.2, label = paste("Mean: ", as.character(round(mean(subset$ast), 1)), " asts", sep = "")), size = 3, inherit.aes = F) +
+  scale_color_manual(values = c("red", "#001A57")) +
+  labs(title = "More assists lead to better shot-making", subtitle = "Duke 2014-15 Season", 
+       x = "Assists", y = "Shot-Making Index", color = "Result", caption = paste(r22, p_val2, "Figure 4", sep = "\n"))
+```
+
+Since there is a clear relationship between SMI and point differential, we can explore a little further: What factors lead to higher shot making ability in a given game (higher SMI)? Limiting our factors to common box score metrics such as rebounds, turnovers, assists, fouls, etc., we found that assists contribute most to SMI. In Figure 4 above, we see the correlation between assists and SMI. There is a positive correlation between assists and SMI. Fitting a simple linear model, we get an R^2^ value of 57.8%, meaning 57.8% of the variation in SMI is well-explained by assists. Obviously, assists are notoriously difficult to track as it is an inherently subjective statistic based on the individual score-keeper’s discretion. One way to improve and/or validate this relationship would be to compare SMI with a more inclusive statistic known as potential assists. A potential assist is any situation where a ball-handler makes a pass to a player who takes a field goal attempt within the normal assist window, regardless of the outcome of the shot.
 
 ```{r plot_ePPS_heat_map}
 ePPS_heat_SVM <- ShotChart %>%
@@ -414,62 +506,21 @@ ePPS_heat <- ShotChart %>%
         panel.background = element_blank(),
         axis.title = element_blank(),
         legend.position = "left") +
-  labs(title = "Duke's 2014-15 Heat Map", subtitle = "By ePPS", fill = "ePPS")
+  labs(title = "Duke's 2014-15 Heat Map", subtitle = "By ePPS", fill = "ePPS", caption = "Figure 5")
 
 p3 <- ggMarginal(ePPS_heat, type = "histogram", size = 8, fill = "#001A57")
 ```
 
 ```{r print_graphs}
 grid.newpage()
-grid.draw(p1)
-grid.newpage()
-grid.draw(p2)
-grid.newpage()
 grid.draw(p3)
 ```
 
-```{r plot_shot_making}
-long %>%
-  filter(type %in% c("ePPS", "PPS")) %>%
-  ggplot(aes(x = reorder(opponent, game_number), y = value, group = type, 
-             color = type)) + 
-  geom_line() + 
-  geom_point(size = 2) +
-  geom_label(aes(x = reorder(opponent, game_number), y = 0.75, label = round(shot_making, 1), 
-                 fill = shot_making), color = "black", size = 2.5, label.size = 0.1, label.r = unit(0.1, "lines"), label.padding = unit(0.1, "lines")) +
-  geom_text(aes(x = 3, y = 0.8, label = "Shot-Making:"), size = 3, inherit.aes = F) +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", labels = c(low = "Worse: -0.3", mid = "Expected: 0", high = "Better: 0.3"), breaks = c(-0.2, 0, 0.2), limits = c(-0.3, 0.3)) +
-  scale_color_manual(values = c("#001A57", "grey", "light blue", "grey")) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Duke's Game-by-Game Shooting", subtitle = "2014-15 Season",
-       x = "Opponent", y = "Points Per Shot", color = "Type", fill = "Shot-Making")
+Figure 5 above is a standard shot chart, a common method for evaluating shooting performance. Instead of using FG%, we use ePPS.
 
-subset %>%
-  ggplot(aes(x = shot_making, y = pt_diff, color = result)) + 
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  geom_smooth(aes(x = shot_making, y = pt_diff), method = "lm", se = F, inherit.aes = F) +
-  geom_point(size = 3) +
-  geom_text(aes(x = -0.11, y = 50, label = "Worse Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = 0.11, y = 50, label = "Better Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  scale_color_manual(values = c("red", "#001A57")) +
-  labs(title = "Better shot-making leads to larger margins of victory", 
-       subtitle = "Duke 2014-15 Season",
-       x = "Shot-Making Index", y = "Point Differential", color = "Result", caption = paste(r2, p_val, sep = "\n"))
+## Gravity
 
-subset %>%
-  ggplot(aes(x = ast, y = shot_making, color = result)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = mean(subset$ast), linetype = "dashed") +
-  geom_smooth(aes(x = ast, y = shot_making), method = "lm", se = F, inherit.aes = F) + 
-  geom_point(size = 3) +
-  geom_text(aes(x = 25, y = -0.05, label = "Worse Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = 25, y = 0.05, label = "Better Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = mean(subset$ast) + 2, y = -0.2, label = paste("Mean: ", as.character(round(mean(subset$ast), 1)), " asts", sep = "")), size = 3, inherit.aes = F) +
-  scale_color_manual(values = c("red", "#001A57")) +
-  labs(title = "More assists lead to better shot-making", subtitle = "Duke 2014-15 Season", 
-       x = "Assists", y = "Shot-Making Index", color = "Result", caption = paste(r22, p_val2, sep = "\n"))
-```
+The idea that basketball players have “gravity” has gained momentum in the last few years. There is no clear definition of a player’s gravity, but it can be reasonably defined as the amount of attention that defenses must give toward a certain offensive player. In this way, defenders may be pulled toward offensive players, thus the notion of gravity. It is important to realize that a player’s gravity is contextual. That is, it depends on the location of the ball, the location of the offensive players as well as who the offensive players are. The term has been most clearly used when discussing the Golden State Warriors, who boast two of the greatest shooters of all time in Stephen Curry and Klay Thompson. Curry and Thompson certainly have a ton of gravity on the court. Defenses must know where they are at all times, lest they leave them open for a split second and allow the sharp-shooters to launch from three-point territory.
 
 ```{r plot_static_convex_hull}
 SportVuGames %>%
@@ -515,27 +566,6 @@ SportVuGames %>%
 ```
 
 ```{r plot_gravity, warning=FALSE, eval=FALSE}
-poss_data <- read_csv("data/possession_test.csv")
-poss_data2 <- read_csv("data/possession_test2.csv")
-
-colnames(poss_data)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
-colnames(poss_data2)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
-
-ND_poss <- SportVuGames %>%
-  slice(69276:69291)
-
-PB_poss <- SportVuGames %>%
-  slice(425:433)
-
-poss_data <- poss_data %>%
-  dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
-
-poss_data2 <- poss_data2 %>%
-  dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
-
-gravity_test <- bind_cols(ND_poss, poss_data)
-gravity_test2 <- bind_cols(PB_poss, poss_data2)
-
 p <- gravity_test %>%
   ggplot() +
   geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
@@ -637,4 +667,184 @@ p2 <- gravity_test2 %>%
 gganimate::animate(p2, start_pause = 10, end_pause = 10, nframes = 200, renderer = ffmpeg_renderer())
 ```
 
+```{r plot_high_low_gravity}
+ND_poss %>%
+  slice(12) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x, yend = p6_y), color = "red", size = 1.5) +
+  geom_text(aes(x = 38, y = 88, label = "Low Gravity"), angle = 5, size = 3) +
+  stat_chull(data = xy1 %>%
+               dplyr::group_by(type) %>%
+               slice(69287), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
+  stat_chull(data = xy2 %>%
+               dplyr::group_by(type) %>%
+               slice(69287), aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
+  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
+  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
+  geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4) +
+  geom_point(aes(x = p4_x, y = p4_y), color = "blue", size = 4) +
+  geom_point(aes(x = p5_x, y = p5_y), color = "blue", size = 4) +
+  geom_point(aes(x = p6_x, y = p6_y), size = 4) +
+  geom_point(aes(x = p7_x, y = p7_y), size = 4) +
+  geom_point(aes(x = p8_x, y = p8_y), size = 4) +
+  geom_point(aes(x = p9_x, y = p9_y), size = 4) +
+  geom_point(aes(x = p10_x, y = p10_y), size = 4) + 
+  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
+  coord_equal(clip = "off") +
+  guides(color = F) +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+
+change <- xy2 %>%
+  dplyr::group_by(type) %>%
+  slice(69287) %>%
+  dplyr::mutate(xcoord = case_when(
+    type == "p6_x" ~ 42.1,
+    TRUE ~ xcoord
+  ),
+  ycoord = case_when(
+    type1 == "p6_y" ~ 86.7,
+    TRUE ~ ycoord
+  ))
+
+ND_poss %>%
+  slice(12) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x + 14, yend = p6_y + 1), size = 1.5, color = "green") +
+  geom_text(aes(x = 45, y = 89, label = "High Gravity"), angle = 6, size = 3) +
+  stat_chull(data = xy1 %>%
+               dplyr::group_by(type) %>%
+               slice(69287), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
+  stat_chull(data = change, aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
+  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
+  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
+  geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4) +
+  geom_point(aes(x = p4_x, y = p4_y), color = "blue", size = 4) +
+  geom_point(aes(x = p5_x, y = p5_y), color = "blue", size = 4) +
+  geom_point(aes(x = p6_x + 14, y = p6_y + 1), size = 4) +
+  geom_point(aes(x = p7_x, y = p7_y), size = 4) +
+  geom_point(aes(x = p8_x, y = p8_y), size = 4) +
+  geom_point(aes(x = p9_x, y = p9_y), size = 4) +
+  geom_point(aes(x = p10_x, y = p10_y), size = 4) + 
+  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
+  coord_equal(clip = "off") +
+  guides(color = F) +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+```
+
+```{r plot_barycentric_coord}
+X1 <- 25.2
+Y1 <- 33
+X2 <- 25
+Y2 <- 4.75
+X3 <- 44.4
+Y3 <- 25.9
+
+Px <- 38.4
+Py <- 23
+
+W1 <- ((Y2-Y3)*(Px-X3) + (X3-X2)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W2 <- ((Y3-Y1)*(Px-X3) + (X1-X3)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W3 <- 1 - W1 - W2
+
+FF_poss %>%
+  slice(11) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = 33, xend = p2_x, yend = p2_y), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p1_x, y = 33, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = p2_y, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = p2_y, xend = 38.4, yend = 23), color = "green", size = 1.5) +
+  geom_text(aes(x = 41, y = 25, label = "High Gravity"), angle = 5, size = 3) +
+  geom_point(aes(x = p1_x, y = 33), color = "blue", size = 4) +
+  geom_text(aes(x = p1_x, y = 33 + 2, label = as.character(round((W1), 2)))) +
+  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
+  geom_text(aes(x = p2_x, y = p2_y - 2, label = as.character(round((W3), 2)))) +
+  geom_point(aes(x = p10_x, y = 23), size = 4) + 
+  geom_text(aes(x = 25, y = 4.75 - 2, label = as.character(round((W2), 2)))) +
+  geom_point(aes(x = ball_x, y = 33), color = "orange") +
+  coord_equal(clip = "off") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+
+Px <- 32
+Py <- 22
+
+W1 <- ((Y2-Y3)*(Px-X3) + (X3-X2)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W2 <- ((Y3-Y1)*(Px-X3) + (X1-X3)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W3 <- 1 - W1 - W2
+
+FF_poss %>%
+  slice(11) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = 33, xend = p2_x, yend = p2_y), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p1_x, y = 33, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = p2_y, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = p2_y, xend = 32, yend = 22), color = "red", size = 1.5) +
+  geom_text(aes(x = 38, y = 24, label = "Low Gravity"), angle = 6, size = 3) +
+  geom_point(aes(x = p1_x, y = 33), color = "blue", size = 4) +
+  geom_text(aes(x = p1_x, y = 33 + 2, label = as.character(round((W1), 2)))) +
+  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
+  geom_text(aes(x = p2_x, y = p2_y - 2, label = as.character(round((W3), 2)))) +
+  geom_point(aes(x = 32, y = 22), size = 4) + 
+  geom_text(aes(x = 25, y = 4.75 - 2, label = as.character(round((W2), 2)))) +
+  geom_point(aes(x = ball_x, y = 33), color = "orange") +
+  coord_equal(clip = "off") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+```
+
+```{r plot_coulomb_problem}
+ND_poss %>%
+  slice(7) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x, yend = p6_y), color = "red", size = 1.5) +
+  geom_text(aes(x = 40, y = 88, label = "Low Gravity"), angle = 7, size = 3) +
+  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
+  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
+  geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4) +
+  geom_point(aes(x = p4_x, y = p4_y), color = "blue", size = 4) +
+  geom_point(aes(x = p5_x, y = p5_y), color = "blue", size = 4) +
+  geom_point(aes(x = p6_x, y = p6_y), size = 4) +
+  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p2_x, yend = p2_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p3_x, yend = p3_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p4_x, yend = p4_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = p5_x, yend = p5_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = 25, yend = 88.75), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  geom_segment(aes(x = p6_x, y = p6_y, xend = ball_x, yend = ball_y), arrow = arrow(length = unit(0.3, "cm")), linejoin = "mitre") +
+  coord_equal(clip = "off") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+```
 

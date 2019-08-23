@@ -24,6 +24,7 @@ library(ggiraph)
 library(rvg)
 library(rvest)
 library(ggpubr)
+source("ChullFunctions.R")
 
 theme_set(theme_classic())
 ```
@@ -31,7 +32,17 @@ theme_set(theme_classic())
 ```{r load_data, message=FALSE, warning=FALSE}
 Duke201415teamstats <- read_csv("data/Duke201415teamstats.csv")
 ShotChart <- read_csv("data/shot_chart_NN_SVM.csv")
-SportVuGames <- read_csv("data/games_1415.csv")
+SportVuGames <- read_csv("data/SportVuGames.csv")
+DukeCHULL <- read_csv("data/DukeConvexHull.csv")
+OpponentCHULL <- read_csv("data/OpponentConvexHull.csv")
+GameLog <- read_csv("data/201415GameLog.csv")
+
+SeasonPlayerGravity <- read_csv("data/201415SeasonGravity.csv")
+SeasonPlayerGravityZones <- read_csv("data/ZoneGravities.csv")
+PlayerGravity <- read_csv("data/201415PlayerStatsWithGravity.csv")
+
+Totals <- read_csv("data/SeasonPlayerZoneGravities.csv")
+Lineups <- read_csv("data/201415LineupsGravity.csv")
 ```
 
 ```{r create_court, message=FALSE, include=FALSE}
@@ -203,17 +214,6 @@ ePPS = (ePPS_NN + ePPS_SVM)/2
 Duke201415teamstats <- Duke201415teamstats %>%
   mutate(PPS = (pts - ft) /fga)
 
-subset <- Duke201415teamstats %>%
-  filter(game_number %in% c(1:7, 9, 11:13, 16, 18, 22, 23, 26, 27, 29, 30, 32:35)) %>%
-  dplyr::mutate(shot_making_NN = PPS - ePPS_NN,
-                shot_making_SVM = PPS - ePPS_SVM,
-                shot_making = PPS - ePPS)
-
-subset <- subset %>%
-  dplyr::mutate(ePPS_NN = ePPS_NN,
-                ePPS_SVM = ePPS_SVM,
-                ePPS = ePPS)
-
 ShotChart <- ShotChart %>%
   dplyr::mutate(ePPS_NN = NN_probability * value,
                 ePPS_SVM = SVM_probability * value,
@@ -221,12 +221,9 @@ ShotChart <- ShotChart %>%
 ```
 
 ```{r wide_to_long_format}
-long <- subset %>%
-   dplyr::select(game_number, opponent, PPS, ePPS_NN, ePPS_SVM, ePPS, shot_making_NN, shot_making_SVM, shot_making) %>%
-   gather(type, value, -game_number, -opponent, -shot_making_NN, -shot_making_SVM, -shot_making)
-
-subset <- subset %>%
-  mutate(pt_diff = pts - opp_pts)
+long <- GameLog %>%
+   dplyr::select(game_number, opponent, PPS, ePPS, shot_making) %>%
+   gather(type, value, -game_number, -opponent, -shot_making)
 ```
 
 ```{r get_game_IDs}
@@ -246,126 +243,17 @@ gameIDs201415[c(34:39)] <- NCAATourn
 gameIDs201415 <- gameIDs201415[c(1:7, 9, 11:13, 16, 18, 22, 23, 26, 27, 29, 30, 32:35)]
 
 long$gameID <- paste(gameIDs201415)
-subset$gameID <- paste(gameIDs201415)
+GameLog$gameID <- paste(gameIDs201415)
 ```
 
 ```{r models_for_shot_making}
-model <- lm(pts ~ shot_making, data = subset)
+model <- lm(pts ~ shot_making, data = GameLog)
 r2 <- paste("R-squared: ", round(100 * glance(model)$r.squared, 4), "%", sep = "") 
 p_val <- paste("P-value: ", round(glance(model)$p.value, 10), sep = "")
 
-model2 <- lm(shot_making ~ ast, data = subset)
+model2 <- lm(shot_making ~ ast, data = GameLog)
 r22 <- paste("R-squared: ", round(100 * glance(model2)$r.squared, 4), "%", sep = "") 
 p_val2 <- paste("P-value: ", round(glance(model2)$p.value, 10), sep = "")
-```
-
-```{r convex_hull_data_frames, warning=FALSE, message=FALSE}
-x1 <- SportVuGames %>%
-  dplyr::select(p1_x, p2_x, p3_x, p4_x, p5_x, game_id, game.clock) %>%
-  gather(type, xcoord, -game_id, -game.clock)
-
-y1 <- SportVuGames %>%
-  dplyr::select(p1_y, p2_y, p3_y, p4_y, p5_y, game_id, game.clock) %>%
-  gather(type, ycoord, -game_id, -game.clock)
-
-xy1 <- bind_cols(x1, y1)
-
-x2 <- SportVuGames %>%
-  dplyr::select(p6_x, p7_x, p8_x, p9_x, p10_x, game_id, game.clock) %>%
-  gather(type, xcoord, -game_id, -game.clock)
-
-y2 <- SportVuGames %>%
-  dplyr::select(p6_y, p7_y, p8_y, p9_y, p10_y, game_id, game.clock) %>%
-  gather(type, ycoord, -game_id, -game.clock)
-
-xy2 <- bind_cols(x2, y2)
-
-SportVuGames$name_lab <- paste(str_replace(SportVuGames$name, pattern = "[.]", replacement = " "))
-SportVuGames <- SportVuGames %>%
-  dplyr::mutate(min = floor(game.clock/60),
-                sec = round(game.clock - (min * 60)),
-                opponent = case_when(
-                  game_id == 20141114 ~ "Presbyterian",
-                  game_id == 20141115 ~ "Farfield",
-                  game_id == 20141118 ~ "Michigan State",
-                  game_id == 20141121 ~ "Temple",
-                  game_id == 20141122 ~ "Stanford",
-                  game_id == 20141126 ~ "Furman",
-                  game_id == 20141130 ~ "Army",
-                  game_id == 20141215 ~ "Elon",
-                  game_id == 20141229 ~ "Toledo",
-                  game_id == 20141231 ~ "Wofford",
-                  game_id == 20150103 ~ "Boston College",
-                  game_id == 20150113 ~ "Miami (FL)",
-                  game_id == 20150117 ~ "Louisville",
-                  game_id == 20150119 ~ "Pittsburgh",
-                  game_id == 20150125 ~ "St. John's",
-                  game_id == 20150204 ~ "Georgia Tech",
-                  game_id == 20150207 ~ "Notre Dame",
-                  game_id == 20150218 ~ "UNC",
-                  game_id == 20150221 ~ "Clemson",
-                  game_id == 20150228 ~ "Syracuse",
-                  game_id == 20150304 ~ "Wake Forest",
-                  game_id == 20150312 ~ "NC State",
-                  game_id == 20150313 ~ "Notre Dame",
-                  game_id == 20150320 ~ "Robert Morris",
-                  game_id == 20150322 ~ "San Diego State"
-                ))
-
-SportVuGames <- SportVuGames %>%
-  dplyr::mutate(sec = as.character(sec),
-                sec = case_when(
-    as.numeric(sec) < 10 & as.numeric(sec) > 1 ~ paste("0", SportVuGames$sec, sep = ""),
-    TRUE ~ sec
-  ))
-SportVuGames$time_lab <- paste(SportVuGames$min, ":", as.character(SportVuGames$sec), sep = "")
-
-SportVuGames <- SportVuGames %>%
-  dplyr::mutate(
-    p1_pos = case_when(
-      p1_global_id %in% c("601140", "842297", "842296", "696289", "842313", "786843", "756883") ~ "G",
-      p1_global_id %in% c("842301", "601143") ~ "C",
-      TRUE ~ "F"),
-    p2_pos = case_when(
-      p2_global_id %in% c("601140", "842297", "842296", "696289", "842313", "786843", "756883") ~ "G",
-      p2_global_id %in% c("842301", "601143") ~ "C",
-      TRUE ~ "F"),
-    p3_pos = case_when(
-      p3_global_id %in% c("601140", "842297", "842296", "696289", "842313", "786843", "756883") ~ "G",
-      p3_global_id %in% c("842301", "601143") ~ "C",
-      TRUE ~ "F"),
-    p4_pos = case_when(
-      p4_global_id %in% c("601140", "842297", "842296", "696289", "842313", "786843", "756883") ~ "G",
-      p4_global_id %in% c("842301", "601143") ~ "C",
-      TRUE ~ "F"),
-    p5_pos = case_when(
-      p5_global_id %in% c("601140", "842297", "842296", "696289", "842313", "786843", "756883") ~ "G",
-      p5_global_id %in% c("842301", "601143") ~ "C",
-      TRUE ~ "F"))
-
-poss_data <- read_csv("data/possession_test.csv")
-poss_data2 <- read_csv("data/possession_test2.csv")
-
-colnames(poss_data)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
-colnames(poss_data2)[3:7] <- c("p1_grav", "p2_grav", "p3_grav", "p4_grav", "p5_grav")
-
-ND_poss <- SportVuGames %>%
-  slice(69276:69291)
-
-PB_poss <- SportVuGames %>%
-  slice(425:433)
-
-FF_poss <- SportVuGames %>%
-  slice(5383:5408)
-
-poss_data <- poss_data %>%
-  dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
-
-poss_data2 <- poss_data2 %>%
-  dplyr::mutate(tot_off_gravity = p1_grav + p2_grav + p3_grav + p4_grav + p5_grav)
-
-gravity_test <- bind_cols(ND_poss, poss_data)
-gravity_test2 <- bind_cols(PB_poss, poss_data2)
 ```
 
 SportVU technology was first used in the NBA during the 2010-11 season, and by 2013-14, became a standard inclusion in every NBA arena. Although SportVU cameras were later replaced by Second Spectrum tracking in professional arenas, SportVU cameras are currently used by a few college basketball programs, including Duke University.
@@ -414,8 +302,8 @@ long %>%
   geom_label(aes(x = reorder(opponent, game_number), y = 0.75, label = round(shot_making, 1), 
                  fill = shot_making), color = "black", size = 2.5, label.size = 0.1, label.r = unit(0.1, "lines"), label.padding = unit(0.1, "lines")) +
   geom_text(aes(x = 3, y = 0.8, label = "Shot-Making:"), size = 3, inherit.aes = F) +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", labels = c(low = "Worse: -0.3", mid = "Expected: 0", high = "Better: 0.3"), breaks = c(-0.2, 0, 0.2), limits = c(-0.3, 0.3)) +
-  scale_color_manual(values = c("#001A57", "grey", "light blue", "grey")) +
+  scale_fill_gradient2(low = "#1a4ba9ff", mid = "white", high = "orange", labels = c(low = "Worse: -0.3", mid = "Expected: 0", high = "Better: 0.3"), breaks = c(-0.2, 0, 0.2), limits = c(-0.35, 0.35)) +
+  scale_color_manual(values = c("#1a4ba9ff", "grey", "light blue", "grey")) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(title = "Duke's Game-by-Game Shooting", subtitle = "2014-15 Season",
        x = "Opponent", y = "Points Per Shot", color = "Type", fill = "Shot-Making", caption = "Figure 2")
@@ -426,35 +314,33 @@ In Figure 2 above, we compare Duke’s actual points per shot (PPS) to our metri
 The difference between PPS and ePPS reveals another insight into Duke’s shooting: their ability to make shots. If we know how well Duke is expected to shoot and how well they actually did shoot, it follows that we can evaluate their ability to make shots in a given game. If Duke’s PPS is higher than its ePPS, then the team converted on more shots than expected, indicating higher shot making ability. This same logic follows for worse than expected shot making. We call this new value (the difference between PPS and ePPS) a team’s shot making index (SMI).
 
 ```{r plot_shot_making_pt_diff}
-subset %>%
-  ggplot(aes(x = shot_making, y = pt_diff, color = result)) + 
-  geom_hline(yintercept = 0, linetype = "dashed") +
+GameLog %>%
+  ggplot(aes(x = shot_making, y = pts)) + 
   geom_vline(xintercept = 0, linetype = "dashed") +
-  geom_smooth(aes(x = shot_making, y = pt_diff), method = "lm", se = F, inherit.aes = F) +
-  geom_point(size = 3) +
-  geom_text(aes(x = -0.11, y = 50, label = "Worse Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = 0.11, y = 50, label = "Better Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  scale_color_manual(values = c("red", "#001A57")) +
-  labs(title = "Better shot-making leads to larger margins of victory", 
+  geom_smooth(aes(x = shot_making, y = pts), method = "lm", se = F, inherit.aes = F, color = "orange") +
+  geom_point(size = 2, color = "#1a4ba9ff") +
+  geom_text(aes(x = -0.12, y = 100, label = "Worse Than Expected Shot Making:"), size = 3, inherit.aes = F) +
+  geom_text(aes(x = 0.12, y = 100, label = "Better Than Expected Shot Making:"), size = 3, inherit.aes = F) +
+  labs(title = "Better Shot Making Correlates to More Points Scored", 
        subtitle = "Duke 2014-15 Season",
-       x = "Shot-Making Index", y = "Point Differential", color = "Result", caption = paste(r2, p_val, "Figure 3", sep = "\n"))
+       x = "Shot Making Index", y = "Points", color = "Result", caption = paste(r2, p_val, "Figure 3", sep = "\n"))
 ```
 
 In Figure 3, we explore the relationship between SMI and point differential. There is a positive correlation between SMI and point differential, with larger values of SMI (indicating better than expected shot making) correlating to higher point differentials (indicating larger margins of victory). Fitting a simple linear model, we find an R^2^ of 63.2%, meaning 63.2% of the variation in point differential is well-explained by SMI. Interestingly, in both of Duke’s losses in our dataset, Duke shot worse than expected.
 
 ```{r plot_asts_shot_making}
-subset %>%
+GameLog %>%
   ggplot(aes(x = ast, y = shot_making, color = result)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_vline(xintercept = mean(subset$ast), linetype = "dashed") +
-  geom_smooth(aes(x = ast, y = shot_making), method = "lm", se = F, inherit.aes = F) + 
-  geom_point(size = 3) +
-  geom_text(aes(x = 25, y = -0.05, label = "Worse Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = 25, y = 0.05, label = "Better Than Expected Shot-Making:"), size = 3, inherit.aes = F) +
-  geom_text(aes(x = mean(subset$ast) + 2, y = -0.2, label = paste("Mean: ", as.character(round(mean(subset$ast), 1)), " asts", sep = "")), size = 3, inherit.aes = F) +
-  scale_color_manual(values = c("red", "#001A57")) +
-  labs(title = "More assists lead to better shot-making", subtitle = "Duke 2014-15 Season", 
-       x = "Assists", y = "Shot-Making Index", color = "Result", caption = paste(r22, p_val2, "Figure 4", sep = "\n"))
+  geom_vline(xintercept = mean(GameLog$ast), linetype = "dashed") +
+  geom_smooth(aes(x = ast, y = shot_making), method = "lm", se = F, inherit.aes = F, color = "black") + 
+  geom_point(size = 2) +
+  geom_text(aes(x = 25, y = -0.05, label = "Worse Than Expected Shot Making:"), size = 3, inherit.aes = F) +
+  geom_text(aes(x = 25, y = 0.05, label = "Better Than Expected Shot Making:"), size = 3, inherit.aes = F) +
+  geom_text(aes(x = mean(GameLog$ast) + 2, y = -0.2, label = paste("Mean: ", as.character(round(mean(GameLog$ast), 1)), " asts", sep = "")), size = 3, inherit.aes = F) +
+  scale_color_manual(values = c("orange", "#1a4ba9ff")) +
+  labs(title = "More Assists Correlates With Better Shot Making", subtitle = "Duke 2014-15 Season", 
+       x = "Assists", y = "Shot Making Index", color = "Result", caption = paste(r22, p_val2, "Figure 4", sep = "\n"))
 ```
 
 Since there is a clear relationship between SMI and point differential, we can explore a little further: What factors lead to higher shot making ability in a given game (higher SMI)? Limiting our factors to common box score metrics such as rebounds, turnovers, assists, fouls, etc., we found that assists contribute most to SMI. In Figure 4 above, we see the correlation between assists and SMI. There is a positive correlation between assists and SMI. Fitting a simple linear model, we get an R^2^ value of 57.8%, meaning 57.8% of the variation in SMI is well-explained by assists. Obviously, assists are notoriously difficult to track as it is an inherently subjective statistic based on the individual score-keeper’s discretion. One way to improve and/or validate this relationship would be to compare SMI with a more inclusive statistic known as potential assists. A potential assist is any situation where a ball-handler makes a pass to a player who takes a field goal attempt within the normal assist window, regardless of the outcome of the shot.
@@ -523,161 +409,20 @@ Figure 5 above is a standard shot chart, a common method for evaluating shooting
 The idea that basketball players have “gravity” has gained momentum in the last few years. There is no clear definition of a player’s gravity, but it can be reasonably defined as the amount of attention that defenses must give toward a certain offensive player. In this way, defenders may be pulled toward offensive players, thus the notion of gravity. It is important to realize that a player’s gravity is contextual. That is, it depends on the location of the ball, the location of the offensive players as well as who the offensive players are. The term has been most clearly used when discussing the Golden State Warriors, who boast two of the greatest shooters of all time in Stephen Curry and Klay Thompson. Curry and Thompson certainly have a ton of gravity on the court. Defenses must know where they are at all times, lest they leave them open for a split second and allow the sharp-shooters to launch from three-point territory.
 
 ```{r plot_static_convex_hull}
-SportVuGames %>%
-  slice(357) %>%
-  ggplot() +
-  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
-  stat_chull(data = xy1 %>%
-               dplyr::group_by(type) %>%
-               slice(357), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
-  stat_chull(data = xy2 %>%
-               dplyr::group_by(type) %>%
-               slice(357), aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
-  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4.5) +
-  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4.5) +
-  geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4.5) +
-  geom_point(aes(x = p4_x, y = p4_y), color = "blue", size = 4.5) +
-  geom_point(aes(x = p5_x, y = p5_y), color = "blue", size = 4.5) +
-  geom_point(aes(x = p6_x, y = p6_y), size = 4.5) +
-  geom_point(aes(x = p7_x, y = p7_y), size = 4.5) +
-  geom_point(aes(x = p8_x, y = p8_y), size = 4.5) +
-  geom_point(aes(x = p9_x, y = p9_y), size = 4.5) +
-  geom_point(aes(x = p10_x, y = p10_y), size = 4.5) + 
-  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
-  geom_text(aes(x = ball_x, y = ball_y + 2, label = str_to_sentence(event.descrip))) +
-  geom_text(aes(x = 25, y = 96, label = paste("Player with poss: ", name_lab, sep = ""))) +
-  geom_text(aes(x = 25, y = 99, label = paste("Game-Clock: ", time_lab, "   Shot-Clock: ", shot.clock, sep = ""))) +
-  geom_text(aes(x = p1_x, y = p1_y, label = p1_pos), color = "white") +
-  geom_text(aes(x = p2_x, y = p2_y, label = p2_pos), color = "white") +
-  geom_text(aes(x = p3_x, y = p3_y, label = p3_pos), color = "white") +
-  geom_text(aes(x = p4_x, y = p4_y, label = p4_pos), color = "white") +
-  geom_text(aes(x = p5_x, y = p5_y, label = p5_pos), color = "white") +
-  coord_equal(clip = "off") +
-  theme(axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
-        panel.background = element_blank(),
-        legend.title = element_blank(),
-        axis.title = element_blank(),
-        axis.line = element_blank(),
-        plot.title = element_text(hjust = 0.5),
-        plot.subtitle = element_text(hjust = 0.5)) +
-  labs(title = "Convex Hull Area Plot", subtitle = "Duke vs. Presbyterian")
-```
-
-```{r plot_gravity, warning=FALSE, eval=FALSE}
-p <- gravity_test %>%
-  ggplot() +
-  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
-  stat_chull(data = xy1 %>%
-               dplyr::group_by(type) %>%
-               slice(69276:69291), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
-  stat_chull(data = xy2 %>%
-               dplyr::group_by(type) %>%
-               slice(69276:69291), aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
-  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
-  geom_text(aes(x = p1_x, y = p1_y - 2, label = as.character(round((p1_grav), 2)))) +
-  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
-  geom_text(aes(x = p2_x, y = p2_y - 2, label = as.character(round((p2_grav), 2)))) +
-  geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4) +
-  geom_text(aes(x = p3_x, y = p3_y - 2, label = as.character(round((p3_grav), 2)))) +
-  geom_point(aes(x = p4_x, y = p4_y), color = "blue", size = 4) +
-  geom_text(aes(x = p4_x, y = p4_y - 2, label = as.character(round((p4_grav), 2)))) +
-  geom_point(aes(x = p5_x, y = p5_y), color = "blue", size = 4) +
-  geom_text(aes(x = p5_x, y = p5_y - 2, label = as.character(round((p5_grav), 2)))) +
-  geom_point(aes(x = p6_x, y = p6_y), size = 4) +
-  geom_point(aes(x = p7_x, y = p7_y), size = 4) +
-  geom_point(aes(x = p8_x, y = p8_y), size = 4) +
-  geom_point(aes(x = p9_x, y = p9_y), size = 4) +
-  geom_point(aes(x = p10_x, y = p10_y), size = 4) + 
-  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
-  geom_text(aes(x = ball_x, y = ball_y + 2, label = str_to_sentence(event.descrip))) +
-  geom_text(aes(x = 25, y = 96, label = paste("Player with poss: ", name_lab, sep = ""))) +
-  geom_text(aes(x = 25, y = 99, label = paste("Game-Clock: ", time_lab, "   Shot-Clock: ", shot.clock, sep = ""))) +
-  geom_text(aes(x = 25, y = 45, label = paste("Total Offensive Gravity: ", round(tot_off_gravity, 2), sep = ""))) +
-  geom_text(aes(x = p1_x, y = p1_y, label = p1_pos), color = "white") +
-  geom_text(aes(x = p2_x, y = p2_y, label = p2_pos), color = "white") +
-  geom_text(aes(x = p3_x, y = p3_y, label = p3_pos), color = "white") +
-  geom_text(aes(x = p4_x, y = p4_y, label = p4_pos), color = "white") +
-  geom_text(aes(x = p5_x, y = p5_y, label = p5_pos), color = "white") +
-  coord_equal(clip = "off") +
-  theme(axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
-        panel.background = element_blank(),
-        legend.title = element_blank(),
-        axis.title = element_blank(),
-        axis.line = element_blank(),
-        plot.title = element_text(hjust = 0.5),
-        plot.subtitle = element_text(hjust = 0.5)) +
-  transition_time(-game.clock) +
-  ease_aes("linear") +
-  labs(title = "Duke vs. Notre Dame", subtitle = "Progress: {100 * round(progress, 2)}%")
-
-gganimate::animate(p, start_pause = 10, end_pause = 10, nframes = 400, renderer = ffmpeg_renderer())
-
-p2 <- gravity_test2 %>%
-  ggplot() +
-  geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
-  stat_chull(data = xy1 %>%
-               dplyr::group_by(type) %>%
-               slice(425:433), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
-  stat_chull(data = xy2 %>%
-               dplyr::group_by(type) %>%
-               slice(425:433), aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
-  geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
-  geom_text(aes(x = p1_x, y = p1_y - 2, label = as.character(round((p1_grav), 2)))) +
-  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
-  geom_text(aes(x = p2_x, y = p2_y - 2, label = as.character(round((p2_grav), 2)))) +
-  geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4) +
-  geom_text(aes(x = p3_x, y = p3_y - 2, label = as.character(round((p3_grav), 2)))) +
-  geom_point(aes(x = p4_x, y = p4_y), color = "blue", size = 4) +
-  geom_text(aes(x = p4_x, y = p4_y - 2, label = as.character(round((p4_grav), 2)))) +
-  geom_point(aes(x = p5_x, y = p5_y), color = "blue", size = 4) +
-  geom_text(aes(x = p5_x, y = p5_y - 2, label = as.character(round((p5_grav), 2)))) +
-  geom_point(aes(x = p6_x, y = p6_y), size = 4) +
-  geom_point(aes(x = p7_x, y = p7_y), size = 4) +
-  geom_point(aes(x = p8_x, y = p8_y), size = 4) +
-  geom_point(aes(x = p9_x, y = p9_y), size = 4) +
-  geom_point(aes(x = p10_x, y = p10_y), size = 4) + 
-  geom_point(aes(x = ball_x, y = ball_y), color = "orange") +
-  geom_text(aes(x = ball_x, y = ball_y + 2, label = str_to_sentence(event.descrip))) +
-  geom_text(aes(x = 25, y = 96, label = paste("Player with poss: ", name_lab, sep = ""))) +
-  geom_text(aes(x = 25, y = 99, label = paste("Game-Clock: ", time_lab, "   Shot-Clock: ", shot.clock, sep = ""))) +
-  geom_text(aes(x = 25, y = 45, label = paste("Total Offensive Gravity: ", round(tot_off_gravity, 2), sep = ""))) +
-  geom_text(aes(x = p1_x, y = p1_y, label = p1_pos), color = "white") +
-  geom_text(aes(x = p2_x, y = p2_y, label = p2_pos), color = "white") +
-  geom_text(aes(x = p3_x, y = p3_y, label = p3_pos), color = "white") +
-  geom_text(aes(x = p4_x, y = p4_y, label = p4_pos), color = "white") +
-  geom_text(aes(x = p5_x, y = p5_y, label = p5_pos), color = "white") +
-  coord_equal(clip = "off") +
-  theme(axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
-        panel.background = element_blank(),
-        legend.title = element_blank(),
-        axis.title = element_blank(),
-        axis.line = element_blank(),
-        plot.title = element_text(hjust = 0.5),
-        plot.subtitle = element_text(hjust = 0.5)) +
-  transition_time(-game.clock) +
-  ease_aes("linear") +
-  labs(title = "Duke vs. Presbyterian", subtitle = "Progress: {100 * round(progress, 2)}%")
-
-gganimate::animate(p2, start_pause = 10, end_pause = 10, nframes = 200, renderer = ffmpeg_renderer())
+convex_hull(Opponent = "Presbyterian", Frame = 357)
 ```
 
 ```{r plot_high_low_gravity}
-ND_poss %>%
-  slice(12) %>%
+SportVuGames %>%
+  slice(69287) %>%
   ggplot() +
   geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
-  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x, yend = p6_y), color = "red", size = 1.5) +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x, yend = p6_y), color = "orange", size = 1.5) +
   geom_text(aes(x = 38, y = 88, label = "Low Gravity"), angle = 5, size = 3) +
-  stat_chull(data = xy1 %>%
+  stat_chull(data = DukeCHULL %>%
                dplyr::group_by(type) %>%
                slice(69287), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
-  stat_chull(data = xy2 %>%
+  stat_chull(data = OpponentCHULL %>%
                dplyr::group_by(type) %>%
                slice(69287), aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
   geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
@@ -701,7 +446,7 @@ ND_poss %>%
         axis.title = element_blank(),
         axis.line = element_blank())
 
-change <- xy2 %>%
+change <- OpponentCHULL %>%
   dplyr::group_by(type) %>%
   slice(69287) %>%
   dplyr::mutate(xcoord = case_when(
@@ -713,13 +458,13 @@ change <- xy2 %>%
     TRUE ~ ycoord
   ))
 
-ND_poss %>%
-  slice(12) %>%
+SportVuGames %>%
+  slice(69287) %>%
   ggplot() +
   geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
-  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x + 14, yend = p6_y + 1), size = 1.5, color = "green") +
+  geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x + 14, yend = p6_y + 1), size = 1.5, color = "#1a4ba9ff") +
   geom_text(aes(x = 45, y = 89, label = "High Gravity"), angle = 6, size = 3) +
-  stat_chull(data = xy1 %>%
+  stat_chull(data = DukeCHULL %>%
                dplyr::group_by(type) %>%
                slice(69287), aes(x = xcoord, y = ycoord), alpha = 0.1, fill = "blue", geom = "polygon") +
   stat_chull(data = change, aes(x = xcoord, y = ycoord), alpha = 0.1, geom = "polygon") +
@@ -745,86 +490,19 @@ ND_poss %>%
         axis.line = element_blank())
 ```
 
-```{r plot_barycentric_coord}
-X1 <- 25.2
-Y1 <- 33
-X2 <- 25
-Y2 <- 4.75
-X3 <- 44.4
-Y3 <- 25.9
+```{r plot_gravity, message=FALSE, warning=FALSE, eval=FALSE}
+gravity_video(fileName = "poss_test_22", Opponent = "Notre Dame", startFrame = 69276, endFrame = 69291)
 
-Px <- 38.4
-Py <- 23
-
-W1 <- ((Y2-Y3)*(Px-X3) + (X3-X2)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
-W2 <- ((Y3-Y1)*(Px-X3) + (X1-X3)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
-W3 <- 1 - W1 - W2
-
-FF_poss %>%
-  slice(11) %>%
-  ggplot() +
-  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
-  geom_segment(aes(x = p1_x, y = 33, xend = p2_x, yend = p2_y), size = 1, linetype = "dashed") +
-  geom_segment(aes(x = p1_x, y = 33, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
-  geom_segment(aes(x = p2_x, y = p2_y, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
-  geom_segment(aes(x = p2_x, y = p2_y, xend = 38.4, yend = 23), color = "green", size = 1.5) +
-  geom_text(aes(x = 41, y = 25, label = "High Gravity"), angle = 5, size = 3) +
-  geom_point(aes(x = p1_x, y = 33), color = "blue", size = 4) +
-  geom_text(aes(x = p1_x, y = 33 + 2, label = as.character(round((W1), 2)))) +
-  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
-  geom_text(aes(x = p2_x, y = p2_y - 2, label = as.character(round((W3), 2)))) +
-  geom_point(aes(x = p10_x, y = 23), size = 4) + 
-  geom_text(aes(x = 25, y = 4.75 - 2, label = as.character(round((W2), 2)))) +
-  geom_point(aes(x = ball_x, y = 33), color = "orange") +
-  coord_equal(clip = "off") +
-  theme(axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
-        panel.background = element_blank(),
-        legend.title = element_blank(),
-        axis.title = element_blank(),
-        axis.line = element_blank())
-
-Px <- 32
-Py <- 22
-
-W1 <- ((Y2-Y3)*(Px-X3) + (X3-X2)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
-W2 <- ((Y3-Y1)*(Px-X3) + (X1-X3)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
-W3 <- 1 - W1 - W2
-
-FF_poss %>%
-  slice(11) %>%
-  ggplot() +
-  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
-  geom_segment(aes(x = p1_x, y = 33, xend = p2_x, yend = p2_y), size = 1, linetype = "dashed") +
-  geom_segment(aes(x = p1_x, y = 33, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
-  geom_segment(aes(x = p2_x, y = p2_y, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
-  geom_segment(aes(x = p2_x, y = p2_y, xend = 32, yend = 22), color = "red", size = 1.5) +
-  geom_text(aes(x = 38, y = 24, label = "Low Gravity"), angle = 6, size = 3) +
-  geom_point(aes(x = p1_x, y = 33), color = "blue", size = 4) +
-  geom_text(aes(x = p1_x, y = 33 + 2, label = as.character(round((W1), 2)))) +
-  geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
-  geom_text(aes(x = p2_x, y = p2_y - 2, label = as.character(round((W3), 2)))) +
-  geom_point(aes(x = 32, y = 22), size = 4) + 
-  geom_text(aes(x = 25, y = 4.75 - 2, label = as.character(round((W2), 2)))) +
-  geom_point(aes(x = ball_x, y = 33), color = "orange") +
-  coord_equal(clip = "off") +
-  theme(axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
-        panel.background = element_blank(),
-        legend.title = element_blank(),
-        axis.title = element_blank(),
-        axis.line = element_blank())
+gravity_video_paired_defense("poss_test_23", "Notre Dame", startFrame = 69276, endFrame = 69291)
 ```
 
 ```{r plot_coulomb_problem}
-ND_poss %>%
-  slice(7) %>%
+SportVuGames %>%
+  slice(69288) %>%
   ggplot() +
   geom_polygon(data = court %>% filter(side == 2), aes(x = x, y = y, group = group), color = "gray") +
   geom_segment(aes(x = p1_x, y = p1_y, xend = p6_x, yend = p6_y), color = "red", size = 1.5) +
-  geom_text(aes(x = 40, y = 88, label = "Low Gravity"), angle = 7, size = 3) +
+  geom_text(aes(x = 40, y = 88, label = "Low Gravity"), angle = 5, size = 3) +
   geom_point(aes(x = p1_x, y = p1_y), color = "blue", size = 4) +
   geom_point(aes(x = p2_x, y = p2_y), color = "blue", size = 4) +
   geom_point(aes(x = p3_x, y = p3_y), color = "blue", size = 4) +
@@ -847,4 +525,186 @@ ND_poss %>%
         axis.title = element_blank(),
         axis.line = element_blank())
 ```
+
+```{r plot_barycentric_coord}
+X1 <- 25.2
+Y1 <- 32
+X2 <- 25
+Y2 <- 4.75
+X3 <- 44.4
+Y3 <- 24
+
+Px <- 38.4
+Py <- 23
+
+W1 <- ((Y2-Y3)*(Px-X3) + (X3-X2)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W2 <- ((Y3-Y1)*(Px-X3) + (X1-X3)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W3 <- 1 - W1 - W2
+
+SportVuGames %>%
+  slice(5394) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = 32, xend = p2_x, yend = 24), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p1_x, y = 32, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = 24, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = 24, xend = 38.4, yend = 23), color = "#1a4ba9ff", size = 1.5) +
+  geom_text(aes(x = 41, y = 25, label = "High Gravity"), angle = 6, size = 3) +
+  geom_point(aes(x = p1_x, y = 32), color = "blue", size = 4) +
+  geom_text(aes(x = p1_x, y = 32 + 2, label = as.character(round((W1), 2)))) +
+  geom_point(aes(x = p2_x, y = 24), color = "blue", size = 4) +
+  geom_text(aes(x = p2_x, y = 24 - 2, label = as.character(round((W3), 2)))) +
+  geom_point(aes(x = p10_x, y = 23), size = 4) + 
+  geom_text(aes(x = 25, y = 4.75 - 2, label = as.character(round((W2), 2)))) +
+  geom_point(aes(x = ball_x, y = 32), color = "orange") +
+  coord_equal(clip = "off") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+
+Px <- 32
+Py <- 22
+
+W1 <- ((Y2-Y3)*(Px-X3) + (X3-X2)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W2 <- ((Y3-Y1)*(Px-X3) + (X1-X3)*(Py-Y3))/((Y2-Y3)*(X1-X3) + (X3-X2)*(Y1-Y3))
+W3 <- 1 - W1 - W2
+
+SportVuGames %>%
+  slice(5394) %>%
+  ggplot() +
+  geom_polygon(data = court %>% filter(side == 1), aes(x = x, y = y, group = group), color = "gray") +
+  geom_segment(aes(x = p1_x, y = 32, xend = p2_x, yend = 24), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p1_x, y = 32, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = 24, xend = 25, yend = 4.75), size = 1, linetype = "dashed") +
+  geom_segment(aes(x = p2_x, y = 24, xend = 32, yend = 22), color = "orange", size = 1.5) +
+  geom_text(aes(x = 38, y = 24.5, label = "Low Gravity"), angle = 7, size = 3) +
+  geom_point(aes(x = p1_x, y = 32), color = "blue", size = 4) +
+  geom_text(aes(x = p1_x, y = 32 + 2, label = as.character(round((W1), 2)))) +
+  geom_point(aes(x = p2_x, y = 24), color = "blue", size = 4) +
+  geom_text(aes(x = p2_x, y = 24 - 2, label = as.character(round((W3), 2)))) +
+  geom_point(aes(x = 32, y = 22), size = 4) + 
+  geom_text(aes(x = 25, y = 4.75 - 2, label = as.character(round((W2), 2)))) +
+  geom_point(aes(x = ball_x, y = 32), color = "orange") +
+  coord_equal(clip = "off") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank())
+
+```
+
+```{r tables_midpost_perimeter_gravity}
+library(knitr)
+library(kableExtra)
+library(formattable)
+
+Totals %>%
+  filter(games > 6) %>%
+  dplyr::mutate(frames_game = round(frames_three/games)) %>%
+  arrange(desc(frames_game)) %>%
+  dplyr::mutate(frames_game = color_bar("#1a4ba9ff")(frames_game),
+                w_off_three = round(w_off_three, 2),
+                w_off_three = color_tile("white", "orange")(w_off_three)) %>%
+  dplyr::select(c(name, games, position, w_off_three, frames_game)) %>%
+  rename(Player = name, Games = games, Position = position, `Midpost Gravity` = w_off_three,
+         `Frames/Game` = frames_game) %>%
+  kable(digits = 2, escape = F, caption = "Duke's 2014-15 Off-Ball Midpost Gravity",
+        align = c("l", "l", "l", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = F) %>%
+  pack_rows("Bigs", 1, 3) %>%
+  pack_rows("Guards/Wings", 4, 9) %>%
+  column_spec(4, color = "black", bold = T) %>%
+  column_spec(5, color = "black", bold = T) %>%
+  footnote(general = "Midpost defined as area 5-15 feet from basket",
+           symbol = "One frame roughly equal to one second of game time")
+
+Totals %>%
+  filter(games > 6) %>%
+  dplyr::mutate(frames_game = round(frames_five/games)) %>%
+  arrange(desc(frames_game)) %>%
+  dplyr::mutate(frames_game = color_bar("#1a4ba9ff")(frames_game),
+                w_off_five = round(w_off_five, 2),
+                w_off_five = color_tile("white", "orange")(w_off_five)) %>%
+  dplyr::select(c(name, games, position, w_off_five, frames_game)) %>%
+  rename(Player = name, Games = games, Position = position, `Perimeter Gravity` = w_off_five,
+         `Frames/Game` = frames_game) %>%
+  kable(digits = 2, escape = F, caption = "Duke's 2014-15 Off-Ball Perimeter Gravity",
+        align = c("l", "l", "l", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = F) %>%
+  pack_rows(index = c("Guards/Wings" = 6, "Bigs" = 3)) %>%
+  column_spec(4, color = "black", bold = T) %>%
+  column_spec(5, color = "black", bold = T) %>%
+  footnote(general = "Perimeter defined as area behind three-point line",
+           symbol = "One frame roughly equal to one second of game time")
+
+Totals %>%
+  dplyr::mutate(frames_game = round(frames_four/games)) %>%
+  arrange(desc(frames_game)) %>%
+  dplyr::mutate(frames_game = color_bar("lightgreen")(frames_game),
+                w_off_four = round(w_off_four, 2),
+                w_off_four = color_tile("white", "orange")(w_off_four)) %>%
+  dplyr::select(c(name, games, position, w_off_four, frames_game)) %>%
+  rename(Player = name, Games = games, Position = position, `Midrange Gravity` = w_off_four,
+         `Frames/Game` = frames_game) %>%
+  kable(digits = 2, escape = F, caption = "Duke's 2014-15 Off-Ball Midrange Gravity",
+        align = c("l", "l", "l", "r", "r"),
+        format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = F) %>%
+  footnote(general = "Midrange defined as area 15-20.75 feet from basket",
+           symbol = "One frame roughly equal to one second of game time")
+
+model7 <- lm(epps ~ grav3, data = Lineups %>% filter(tally > 8))
+r27 <- paste("R-squared: ", round(100 * glance(model7)$r.squared, 4), "%", sep = "") 
+p_val7 <- paste("P-value: ", round(glance(model7)$p.value, 4), sep = "")
+
+Lineups %>% 
+  filter(tally > 8) %>%
+  ggplot() +
+  geom_smooth(aes(x = grav3, y = epps), method = "lm", se = F, color = "orange") +
+  geom_point(aes(x = grav3, y = epps), size = 2, color = "#1a4ba9ff") +
+  labs(title = "Off-Ball Midpost Gravity Correlates to Higher Quality Looks",
+       subtitle = "Among Duke 2014-15 Lineups",
+       x = "Off-Ball Midpost Gravity (5-15 feet)",
+       y = "ePPS",
+       caption = paste("Minimum 9 shot attempts per lineup", r27, p_val7, sep = "\n"))
+
+model3 <- lm(three_pct ~ grav5, data = GameLog %>% filter(opponent != "Syracuse(2)"))
+r23 <- paste("R-squared: ", round(100 * glance(model3)$r.squared, 4), "%", sep = "") 
+p_val3 <- paste("P-value: ", round(glance(model3)$p.value, 4), sep = "")
+
+GameLog %>%
+  filter(opponent != "Syracuse(2)") %>%
+  ggplot() +
+  geom_smooth(aes(x = grav5, y = three_pct), method = "lm", se = F, color = "orange") +
+  geom_point(aes(x = grav5, y = three_pct), size = 2, color = "#1a4ba9ff") + 
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Higher Perimeter Gravity Leads to Better Three-Point Percentages",
+       subtitle = "Among Games Played During the Duke 2014-15 Season",
+       x = "Average Perimeter Gravity (20.75+ feet) Per Game", y = "3FG%",
+       caption = paste(r23, p_val3, sep = "\n"))
+
+model4 <- lm(three_pct ~ offball_zone_five, data = PlayerGravity %>% filter(opponent != "Syracuse(2)"))
+r24 <- paste("R-squared: ", round(100 * glance(model4)$r.squared, 4), "%", sep = "") 
+p_val4 <- paste("P-value: ", round(glance(model4)$p.value, 4), sep = "")
+
+PlayerGravity %>%
+  filter(three_fga > 2) %>%
+  ggplot() +
+  geom_smooth(aes(x = offball_zone_five, y = three_pct), method = "lm", se = F, color = "orange") +
+  geom_point(aes(x = offball_zone_five, y = three_pct), size = 2, color = "#1a4ba9ff") + 
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Off-Ball Perimeter Gravity vs. Three-Point Shooting", 
+       subtitle = "Duke 2014-15 Player Gamelogs",
+       x = "Off-Ball Perimeter Gravity (20.75+ feet)", 
+       y = "3FG%",
+       caption = paste("Minimum three 3FGA in a game", r24, p_val4, sep = "\n"))
+```
+
 

@@ -120,31 +120,51 @@ scrape_player_stats <- function(x){
          pts = pts)
 }
 
-add_pct <- function(x){
+add_pct <- function(x, firstName, lastName){
   y <- scrape_player_stats(x)
+  y$game_id <- as.numeric(str_replace_all(y$date, "-", ""))
+  y$name <- paste(str_to_title(firstName), " ", str_to_title(lastName), sep = "")
   y %>%
-    mutate(fg_pct = fg/fga,
+    dplyr::mutate(fg_pct = fg/fga,
            two_pct = two_fg/two_fga,
            three_pct = three_fg/three_fga,
            ft_pct = ft/fta,
            PPS_two = two_fg * 2/two_fga,
            PPS_three = three_fg * 3/three_fga,
            PPS = pts/fga) %>%
-    select(game_number, date, opponent, result, start, minutes, fg, fga, fg_pct, two_fg, two_fga, two_pct, three_fg, three_fga, three_pct, ft, fta, ft_pct, PPS_two, PPS_three, PPS, o_reb, d_reb, tot_reb, ast, stl, blk, tov, foul, pts)
+    dplyr::select(game_number, game_id, name,opponent, result, start, minutes, fg, fga, fg_pct, two_fg, two_fga, two_pct, three_fg, three_fga, three_pct, ft, fta, ft_pct, PPS_two, PPS_three, PPS, o_reb, d_reb, tot_reb, ast, stl, blk, tov, foul, pts)
 }
 
 #Enter player name in all lower case
 get_full_player_stats <- function(firstName, lastName){
-  url <- paste("https://www.sports-reference.com/cbb/players/", firstName, "-", lastName,"-1/gamelog/2019", sep = "")
-  add_pct(url)
+  url <- paste("https://www.sports-reference.com/cbb/players/", firstName, "-", lastName,"-1/gamelog/2015/", sep = "")
+  add_pct(url, firstName, lastName)
 }
 
-ZionWilliamsonGameLog <- get_full_player_stats("zion", "williamson")
-RJBarrettGameLog <- get_full_player_stats("rj", "barrett")
-CamReddishGameLog <- get_full_player_stats("cam", "reddish")
+# ZionWilliamsonGameLog <- get_full_player_stats("zion", "williamson")
+# RJBarrettGameLog <- get_full_player_stats("rj", "barrett")
+# CamReddishGameLog <- get_full_player_stats("cam", "reddish")
+# 
+# write_csv(ZionWilliamsonGameLog, "data/ZionWilliamsonGameLog.csv")
+# write_csv(RJBarrettGameLog, "data/RJBarrettGameLog.csv")
+# write_csv(CamReddishGameLog, "data/CamReddishGameLog.csv")
 
-write_csv(ZionWilliamsonGameLog, "data/ZionWilliamsonGameLog.csv")
-write_csv(RJBarrettGameLog, "data/RJBarrettGameLog.csv")
-write_csv(CamReddishGameLog, "data/CamReddishGameLog.csv")
+JOGameLog <- get_full_player_stats("jahlil", "okafor")
+QCGameLog <- get_full_player_stats("quinn", "cook")
+JWGameLog <- get_full_player_stats("justise", "winslow")
+TJGameLog <- get_full_player_stats("tyus", "jones")
+AJGameLog <- get_full_player_stats("amile", "jefferson")
+MJGameLog <- get_full_player_stats("matt", "jones")
+GAGameLog <- get_full_player_stats("grayson", "allen")
+RSGameLog <- get_full_player_stats("rasheed", "sulaimon")
+MPGameLog <- get_full_player_stats("marshall", "plumlee")
+SOGameLog <- get_full_player_stats("semi", "ojeleye")
+NPGameLog <- get_full_player_stats("nick", "pagliuca")
+SKGameLog <- get_full_player_stats("sean", "kelly")
 
+PlayerStats <- bind_rows(JOGameLog, QCGameLog, JWGameLog, TJGameLog,
+          AJGameLog, MJGameLog, GAGameLog, RSGameLog,
+          MPGameLog, SOGameLog, NPGameLog, SKGameLog)
+
+write_csv(PlayerStats, "data/201415IndividualPlayerStats.csv")
 
